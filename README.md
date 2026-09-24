@@ -2,6 +2,8 @@
 
 Herramienta local para organizar y representar visualmente entidades, relaciones y evidencias de una investigación.
 
+Enlace a la herramienta web: https://s3gad3.github.io/rastro-link/
+
 ## Uso
 
 1. Abre `index.html` en Chrome, Edge o Firefox.
