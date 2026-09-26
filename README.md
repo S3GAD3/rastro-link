@@ -6,7 +6,7 @@ RASTRO-LINK convierte los datos de una investigación (teléfonos, SIM, IMEI, pe
 
 Es un único archivo HTML. No necesita instalación, servidor ni conexión a Internet, y **ningún dato sale del equipo**.
 
-![Vista general de RASTRO-LINK](capturas/01-vista-general.png)
+![Vista general de RASTRO-LINK](01-vista-general.png)
 
 ---
 
@@ -73,7 +73,7 @@ Está pensada para trabajar deprisa. El alta rápida detecta el tipo de dato, se
 
 ## 3. La pantalla de trabajo
 
-![Ficha de una entidad y resaltado de sus vecinos](capturas/02-ficha-y-vecinos.png)
+![Ficha de una entidad y resaltado de sus vecinos](02-ficha-y-vecinos.png)
 
 | Zona | Contenido |
 |---|---|
@@ -100,7 +100,7 @@ Hay cuatro formas de añadir datos. Todas llevan al mismo sitio.
 
 ### 4.1 Alta rápida (la más ágil)
 
-![Alta rápida con detección y validación](capturas/03-alta-rapida.png)
+![Alta rápida con detección y validación](03-alta-rapida.png)
 
 1. Escribe o pega el dato en la casilla (atajo: tecla `A`).
 2. Con **«Detectar tipo (automático)»**, la herramienta reconoce el tipo y te lo indica antes de añadirlo («Se añadirá como Cuenta bancaria»). También muestra el resultado de la validación y avisa si el dato ya existe.
@@ -114,7 +114,7 @@ Otras posibilidades del alta rápida:
 
 ### 4.2 Ficha completa
 
-![Ficha completa de entidad](capturas/04-ficha-completa.png)
+![Ficha completa de entidad](04-ficha-completa.png)
 
 Se abre con **Ficha completa…**, el botón **+ Entidad** o la tecla `N`. Incluye todos los campos:
 
@@ -226,7 +226,7 @@ La pestaña **Vínculos** lista las relaciones (→ salientes, ← entrantes). L
 
 ### Selección múltiple
 
-![Selección múltiple y acciones de grupo](capturas/05-seleccion-multiple.png)
+![Selección múltiple y acciones de grupo](05-seleccion-multiple.png)
 
 - **Mayús + clic** sobre entidades, vínculos o cuadros los **añade o quita** de la selección. También funciona en la lista de entidades del panel izquierdo.
 - **Mayús + arrastrar sobre el fondo** dibuja un rectángulo y selecciona **todo lo que quede dentro**.
@@ -273,19 +273,19 @@ Todas las operaciones se pueden deshacer con `Ctrl+Z` y rehacer con `Ctrl+Y`, ha
 
 ### Tabla
 
-![Vista de tabla](capturas/06-tabla.png)
+![Vista de tabla](06-tabla.png)
 
 Inventario de **entidades**, **vínculos** o **notas y zonas**. Pulsa una cabecera para **ordenar**. El ID lleva al elemento en el grafo. Respeta el filtro y la búsqueda del panel izquierdo.
 
 ### Cronología
 
-![Cronología de hechos](capturas/07-cronologia.png)
+![Cronología de hechos](07-cronologia.png)
 
 Ordena por fecha todas las entidades y vínculos que la tienen, con su fuente y su estado. Al pulsar un hecho se muestra en el grafo. Indica cuántos elementos no tienen fecha.
 
 ### Análisis
 
-![Lectura estructural del caso](capturas/08-analisis.png)
+![Lectura estructural del caso](08-analisis.png)
 
 Lectura estructural automática del caso:
 
@@ -326,7 +326,7 @@ El **punto ámbar** del botón y la barra inferior («Aún no guardado en archiv
   - cargar la **demostración**.
 - Si abres un archivo de un caso que ya está en el navegador, la herramienta compara fechas y pregunta si quieres **sustituir** la copia local o **abrirlo como copia**.
 
-![Biblioteca de casos](capturas/10-abrir-caso.png)
+![Biblioteca de casos](10-abrir-caso.png)
 
 ### Datos del caso
 
@@ -336,7 +336,7 @@ El botón del maletín, o un clic en el nombre del caso, abre el nombre, la refe
 
 El botón rojo **Limpiar** de la barra de herramientas (también en el clic derecho sobre el fondo) **borra todo el grafo** del caso actual (entidades, vínculos y cuadros) y deja el lienzo en blanco. Conserva el nombre y los demás datos del caso.
 
-![Aviso de confirmación antes de limpiar](capturas/09-limpiar-lienzo.png)
+![Aviso de confirmación antes de limpiar](09-limpiar-lienzo.png)
 
 Antes de borrar aparece un **aviso de confirmación** que indica qué se va a eliminar, con tres opciones:
 
@@ -382,7 +382,7 @@ También puedes pegar directamente una columna de datos en **Alta rápida** (ver
 
 ## 13. Exportar resultados
 
-![Opciones de exportación](capturas/11-exportar.png)
+![Opciones de exportación](11-exportar.png)
 
 | Formato | Uso |
 |---|---|
