@@ -6,6 +6,8 @@ RASTRO-LINK convierte los datos de una investigación (teléfonos, SIM, IMEI, pe
 
 Es un único archivo HTML. No necesita instalación, servidor ni conexión a Internet, y **ningún dato sale del equipo**.
 
+Enlace a la herramienta web: https://s3gad3.github.io/rastro-link/
+
 ![Vista general de RASTRO-LINK](01-vista-general.png)
 
 ---
@@ -55,7 +57,7 @@ Está pensada para trabajar deprisa. El alta rápida detecta el tipo de dato, se
 
 ## 2. Puesta en marcha
 
-1. Copia el archivo **`index.html`** en una carpeta de trabajo.
+1. Copia el archivo **`index.html`** en una carpeta de trabajo. También puedes utilizarla desde la versión web en el enlace https://s3gad3.github.io/rastro-link/
 2. Ábrelo con doble clic en el navegador. Se recomiendan **Google Chrome** o **Microsoft Edge**, porque permiten guardar directamente sobre el mismo archivo. En Firefox también funciona, pero cada guardado se descarga como archivo nuevo.
 3. La primera vez se carga un **caso de demostración** para explorar la herramienta. Para empezar tu propio caso pulsa **Nuevo caso**.
 
