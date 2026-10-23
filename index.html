@@ -534,6 +534,7 @@
             <div class="check dup" id="entityDup"></div>
           </div>
           <div class="form-field full"><label for="entityAlias">Alias o etiqueta visible</label><input id="entityAlias"></div>
+          <div class="form-field full"><label for="entityInsideText">Texto dentro del nodo</label><textarea id="entityInsideText" rows="2" maxlength="120" placeholder="Ej.: Titular de la línea&#10;Confirmado por operadora"></textarea><span class="form-help">Opcional. Usa etiquetas breves: el texto se ajusta al tamaño de la figura. Si lo dejas vacío, se conserva la abreviatura del tipo de dato.</span></div>
           <div class="form-field"><label for="entityStatus">Estado</label><select id="entityStatus"><option>Confirmado</option><option>Probable</option><option>Pendiente</option><option>Descartado</option></select></div>
           <div class="form-field"><label for="entityRelevance">Relevancia</label><select id="entityRelevance"><option>Alta</option><option selected>Media</option><option>Baja</option></select></div>
         </div>
@@ -569,7 +570,8 @@
       <div class="dialog-body"><input type="hidden" id="edgeId"><input type="hidden" id="edgeSource"><input type="hidden" id="edgeTarget">
         <div class="edge-summary" id="edgeSummary"></div>
         <div class="form-grid">
-          <div class="form-field full"><label for="edgeLabel">Tipo de relación <span class="req">*</span></label><input id="edgeLabel" list="edgeLabels" placeholder="Ej.: utilizó, titular de, transfirió a…"></div>
+          <div class="form-field full"><label for="edgeLabel">Relación o relaciones <span class="req">*</span></label><textarea id="edgeLabel" rows="3" placeholder="Escribe una relación por línea. Puedes usar texto libre."></textarea><span class="form-help">Cada línea crea un vínculo independiente entre los nodos. El texto es libre; los valores sugeridos siguen disponibles aquí:</span><select id="edgeLabelPreset" aria-label="Añadir una relación sugerida"><option value="">Añadir sugerencia…</option></select></div>
+          <div class="form-field full"><label for="edgeText">Texto libre en la flecha <span class="form-help">(opcional)</span></label><textarea id="edgeText" rows="2" placeholder="Contexto breve, importe, dato o aclaración que quieras mostrar junto al vínculo…"></textarea><span class="form-help">Se muestra debajo de la relación. Para mover la flecha, arrástrala sobre el lienzo.</span></div>
           <div class="form-field"><label for="edgeCertainty">Certeza</label><select id="edgeCertainty"><option>Confirmada</option><option>Probable</option><option>Hipótesis</option></select><span class="form-help">Ajusta el estilo de línea automáticamente.</span></div>
           <div class="form-field"><label for="edgeDirection">Dirección</label><select id="edgeDirection"><option value="forward">Origen → destino</option><option value="both">Bidireccional</option><option value="none">Sin dirección</option></select></div>
           <div class="form-field"><label for="edgeStyle">Estilo</label><select id="edgeStyle"><option value="solid">Continua</option><option value="dashed">Discontinua</option><option value="dotted">Punteada</option></select></div>
@@ -663,6 +665,7 @@
       <ul class="help-list">
         <li><b>Doble clic en el lienzo</b>: crear una entidad en ese punto. Doble clic sobre un elemento: editarlo.</li>
         <li><b>Mayús + clic</b> sobre entidades, vínculos o cuadros: añadirlos o quitarlos de la selección. <b>Mayús + arrastrar sobre el fondo</b>: seleccionar todo lo que quede dentro del área.</li>
+        <li><b>Arrastrar una flecha o su etiqueta</b>: cambiar su recorrido. Doble clic para editar la relación y añadir texto libre visible en la flecha.</li>
         <li>Con varios elementos seleccionados, arrastra cualquiera de ellos para mover el grupo; la ficha permite borrarlos, cambiar estado, etiqueta o color, alinearlos o agruparlos en una zona.</li>
         <li><b>Mayús + arrastrar</b> desde una entidad hasta otra: crear un vínculo sin cambiar de herramienta.</li>
         <li><b>Limpiar</b> (barra de herramientas) deja el lienzo en blanco tras confirmarlo; se puede deshacer.</li>
@@ -712,11 +715,11 @@
 'use strict';
 
 /* =====================================================================
-   RASTRO-LINK 2.0 · Análisis visual de entidades y vínculos
+   RASTRO-LINK 2.4 · Análisis visual de entidades y vínculos
    1. Utilidades · 2. Tipos y validación · 3. Estado y almacenamiento
    ===================================================================== */
 
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.4.0';
 // Copia prístina del documento (antes de renderizar) para exportar el HTML autónomo
 const PAGE_SOURCE = '<!doctype html>\n' + document.documentElement.outerHTML;
 
@@ -797,6 +800,69 @@ const CRYPTO_FORMATS = [
 ];
 const R = (level, msg) => ({ level, msg });
 
+function parseIPv4(value) {
+  const m = String(value).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?::(\d{1,5}))?$/);
+  if (!m) return null;
+  const octets = m.slice(1, 5).map(Number);
+  if (octets.some((x, i) => x > 255 || (m[i + 1].length > 1 && m[i + 1][0] === '0')) || (m[5] && +m[5] > 65535)) return null;
+  return { octets, port: m[5] ? +m[5] : null };
+}
+function parseIPv6(value) {
+  let s = String(value).trim(), port = null;
+  const bracket = s.match(/^\[([\s\S]+)\](?::(\d{1,5}))?$/);
+  if (bracket) { s = bracket[1]; port = bracket[2] ? +bracket[2] : null; }
+  if (port !== null && port > 65535) return null;
+  if (s.includes('%') || !s.includes(':') || !/^[0-9a-f:.]+$/i.test(s) || s.includes(':::')) return null;
+  let tailV4 = null;
+  const v4m = s.match(/(?:^|:)(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (v4m) {
+    const parsed = parseIPv4(v4m[1]);
+    if (!parsed || parsed.port !== null) return null;
+    tailV4 = parsed.octets;
+    s = s.slice(0, s.length - v4m[1].length) + ((tailV4[0] * 256 + tailV4[1]).toString(16)) + ':' + ((tailV4[2] * 256 + tailV4[3]).toString(16));
+  }
+  if ((s.match(/::/g) || []).length > 1) return null;
+  const compressed = s.includes('::'), halves = s.split('::');
+  const left = halves[0] ? halves[0].split(':') : [], right = compressed && halves[1] ? halves[1].split(':') : [];
+  const all = [...left, ...right];
+  if (all.some(x => !/^[0-9a-f]{1,4}$/i.test(x))) return null;
+  if (compressed ? all.length >= 8 : all.length !== 8) return null;
+  const groups = [...left.map(x => parseInt(x, 16)), ...Array(compressed ? 8 - all.length : 0).fill(0), ...right.map(x => parseInt(x, 16))];
+  if (groups.length !== 8) return null;
+  return { groups, port, embeddedIPv4: tailV4 };
+}
+function classifyIPv4(o) {
+  const [a,b,c,d] = o;
+  if (a === 0) return ['special', 'IPv4 0.0.0.0/8 reservado (este equipo/red).'];
+  if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return ['private', 'IP privada (RFC 1918): no identifica directamente un acceso en Internet.'];
+  if (a === 100 && b >= 64 && b <= 127) return ['cgnat', 'Rango CGNAT (100.64.0.0/10): la atribución requiere puerto de origen y hora exacta.'];
+  if (a === 127) return ['special', 'IP de loopback (equipo local).'];
+  if (a === 169 && b === 254) return ['special', 'IPv4 link-local (169.254.0.0/16), no enrutable en Internet.'];
+  if (a === 192 && b === 0 && c === 2 || a === 198 && b === 51 && c === 100 || a === 203 && b === 0 && c === 113) return ['documentation', 'Rango reservado para documentación; no es una IP pública atribuible.'];
+  if (a === 198 && (b === 18 || b === 19)) return ['special', 'Rango de pruebas/benchmark (198.18.0.0/15), no enrutable en Internet.'];
+  if (a === 192 && b === 168) return ['private', 'IP privada (RFC 1918): no identifica directamente un acceso en Internet.'];
+  if (a === 192 && b === 88 && c === 99) return ['special', 'Rango de retransmisión 6to4 obsoleto (192.88.99.0/24).'];
+  if (a === 192 && b === 0 && c === 0) return ['special', 'Rango IETF de uso especial (192.0.0.0/24).'];
+  if (a >= 224 && a <= 239) return ['special', 'Dirección multicast IPv4; no es una dirección de abonado.'];
+  if (a >= 240 || (a === 255 && b === 255 && c === 255 && d === 255)) return ['special', 'Rango reservado/broadcast IPv4; no es una dirección pública atribuible.'];
+  return ['public', 'IPv4 de formato válido, fuera de los rangos especiales reconocidos. Confirma la asignación y el momento del dato.'];
+}
+function classifyIPv6(parsed) {
+  const g = parsed.groups;
+  if (g.every(x => x === 0)) return ['special', 'IPv6 no especificada (::); no identifica un origen remoto.'];
+  if (g.slice(0, 7).every(x => x === 0) && g[7] === 1) return ['special', 'IPv6 loopback (::1), equipo local.'];
+  if (g[0] >= 0xfc00 && g[0] <= 0xfdff) return ['private', 'IPv6 local única (fc00::/7), no enrutable globalmente.'];
+  if ((g[0] & 0xffc0) === 0xfe80) return ['special', 'IPv6 link-local (fe80::/10), no enrutable globalmente.'];
+  if ((g[0] & 0xff00) === 0xff00) return ['special', 'IPv6 multicast, no es una dirección de abonado.'];
+  if (g[0] === 0x2001 && g[1] === 0x0db8) return ['documentation', 'Rango IPv6 reservado para documentación (2001:db8::/32).'];
+  if (g.slice(0, 5).every(x => x === 0) && g[5] === 0xffff) {
+    const v4 = [g[6] >> 8, g[6] & 255, g[7] >> 8, g[7] & 255];
+    return classifyIPv4(v4);
+  }
+  if (g[0] < 0x2000 || g[0] >= 0x4000) return ['special', 'IPv6 fuera del espacio global unicast habitual (2000::/3); verifica el rango.'];
+  return ['public', 'IPv6 global-unicast de formato válido. Confirma la asignación y el momento del dato.'];
+}
+
 const CHECKS = {
   phone(v) {
     if (isMasked(v)) return R('info', 'Valor parcialmente enmascarado: no se valida.');
@@ -840,17 +906,21 @@ const CHECKS = {
   ip(v) {
     const t = v.trim();
     if (isMasked(t)) return R('info', 'Valor parcialmente enmascarado: no se valida.');
-    const m = t.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(?::(\d{1,5}))?$/);
-    if (m) {
-      if (m.slice(1, 5).some(o => +o > 255)) return R('warn', 'Algún octeto supera 255.');
-      const a = +m[1], b = +m[2];
-      if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return R('warn', 'IP privada (RFC 1918): no identifica un acceso en Internet.');
-      if (a === 127) return R('warn', 'IP de loopback (equipo local).');
-      if (a === 100 && b >= 64 && b <= 127) return R('warn', 'Rango CGNAT (100.64.0.0/10): requiere puerto de origen y hora exacta.');
-      return R('ok', 'IPv4 pública válida. Anota fecha, hora UTC y puerto.' + (m[5] ? ` Puerto: ${m[5]}.` : ''));
+    const v4 = parseIPv4(t);
+    if (v4) {
+      const [kind, msg] = classifyIPv4(v4.octets);
+      const portNote = v4.port !== null ? ` Puerto ${v4.port}.` : '';
+      const request = kind === 'cgnat' ? ' Conserva puerto de origen y hora exacta UTC.' : ' Anota fecha, hora UTC y puerto de origen para la atribución.';
+      return R(kind === 'public' ? 'ok' : (kind === 'documentation' ? 'info' : 'warn'), msg + portNote + (kind === 'public' || kind === 'cgnat' ? request : ''));
     }
-    if (/^[0-9a-f:]+$/i.test(t) && t.includes(':') && t.split(':').length <= 8) return R('ok', 'IPv6 con formato válido.');
-    return R('warn', 'No parece una IPv4/IPv6 válida.');
+    const v6 = parseIPv6(t);
+    if (v6) {
+      const [kind, msg] = classifyIPv6(v6);
+      const portNote = v6.port !== null ? ` Puerto ${v6.port}.` : '';
+      return R(kind === 'public' ? 'ok' : (kind === 'documentation' ? 'info' : 'warn'), msg + portNote + (kind === 'public' ? ' Anota fecha, hora UTC y puerto de origen para la atribución.' : ''));
+    }
+    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(t) || /^\[.*\]:\d+$/.test(t)) return R('warn', 'Dirección o puerto fuera de rango. Revisa octetos, grupos y puerto (0–65535).');
+    return R('warn', 'No parece una IPv4/IPv6 válida. Para IPv6 con puerto usa el formato [dirección]:puerto.');
   },
   domain(v) {
     try {
@@ -895,8 +965,7 @@ function detectType(value) {
   if (!t) return null;
   if (/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(t)) return 'email';
   if (/^[A-Z]{2}\d{2}[\s0-9A-Z•*]{11,}$/i.test(t) && /^[A-Z]{2}\d{2}/i.test(t) && t.replace(/\s/g, '').length >= 15) return 'bank';
-  if (/^(\d{1,3}|[•*x]{1,3})(\.(\d{1,3}|[•*x]{1,3})){3}(:\d{1,5})?$/i.test(t)) return 'ip';
-  if (/^[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}$/i.test(t) && /[0-9a-f]/i.test(t)) return 'ip';
+  if (/^(\d{1,3}|[•*x]{1,3})(\.(\d{1,3}|[•*x]{1,3})){3}(:\d{1,5})?$/i.test(t) || parseIPv4(t) || parseIPv6(t)) return 'ip';
   for (const [re] of CRYPTO_FORMATS.slice(0, 6)) if (re.test(t)) return 'crypto';
   if (/^https?:\/\//i.test(t) || /^www\./i.test(t)) return /(facebook|instagram|tiktok|twitter|x\.com|t\.me|telegram|linkedin|youtube|snapchat|wa\.me|threads)/i.test(t) ? 'social' : 'domain';
   if (/^@[\w.]{2,}$/.test(t)) return 'social';
@@ -974,7 +1043,7 @@ function normalizeState(data) {
       value: String(n.value ?? ''), alias: String(n.alias ?? ''),
       status: STATUS.includes(n.status) ? n.status : 'Pendiente', relevance: RELEVANCE.includes(n.relevance) ? n.relevance : 'Media',
       tags: Array.isArray(n.tags) ? n.tags.map(String) : String(n.tags || '').split(/[,|]/).map(x => x.trim()).filter(Boolean),
-      source: String(n.source ?? ''), notes: String(n.notes ?? ''), date: String(n.date ?? ''),
+      source: String(n.source ?? ''), notes: String(n.notes ?? ''), insideText: String(n.insideText ?? ''), date: String(n.date ?? ''),
       color: /^#[0-9a-f]{6}$/i.test(n.color) ? n.color : td.color, shape, size: ['s', 'm', 'l'].includes(n.size) ? n.size : 'm',
       x: Number.isFinite(+n.x) ? +n.x : 160 + (i % 5) * 200, y: Number.isFinite(+n.y) ? +n.y : 140 + Math.floor(i / 5) * 170,
       image: typeof n.image === 'string' ? n.image : '', created: n.created || '', updated: n.updated || ''
@@ -982,7 +1051,7 @@ function normalizeState(data) {
   });
   const ids = new Set(d.nodes.map(n => n.id));
   d.edges = d.edges.filter(e => e && ids.has(e.source) && ids.has(e.target) && e.source !== e.target).map(e => ({
-    id: String(e.id || 'REL-' + randId()), source: e.source, target: e.target, label: String(e.label || 'relacionado con'),
+    id: String(e.id || 'REL-' + randId()), source: e.source, target: e.target, label: String(e.label || 'relacionado con'), text: String(e.text || ''), bendX: Number.isFinite(+e.bendX) ? +e.bendX : 0, bendY: Number.isFinite(+e.bendY) ? +e.bendY : 0,
     direction: ['forward', 'both', 'none'].includes(e.direction) ? e.direction : 'forward',
     style: ['solid', 'dashed', 'dotted'].includes(e.style) ? e.style : 'solid',
     color: /^#[0-9a-f]{6}$/i.test(e.color) ? e.color : '#607285', weight: +e.weight || 1.5,
@@ -1177,6 +1246,8 @@ const GRAPH_CSS = `
 .node{cursor:grab}
 .node-shape{stroke:#fff;stroke-width:3}
 .node-abbr{font-family:${FONT};font-weight:800;fill:#fff;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.node-custom-text{font-family:${FONT};font-weight:700;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.node-custom-text-image{fill:#fff;stroke:#14212c;stroke-width:3px;paint-order:stroke;stroke-linejoin:round}
 .node-label{font-family:${FONT};font-size:12px;font-weight:700;fill:#102235;text-anchor:middle;pointer-events:none;paint-order:stroke;stroke:#edf2f7;stroke-width:4px;stroke-linejoin:round}
 .node-sub{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:500;fill:#46596c}
 .node-ring{fill:none;stroke:#ffbe40;stroke-width:4}
@@ -1185,10 +1256,12 @@ const GRAPH_CSS = `
 .st-Descartado{opacity:.42}
 .st-Pendiente .node-shape{stroke-dasharray:6 4}
 .dim{opacity:.16}
-.edge-hit{stroke:transparent;stroke-width:14;fill:none;pointer-events:stroke;cursor:pointer}
+.edge-hit{stroke:transparent;stroke-width:14;fill:none;pointer-events:stroke;cursor:grab}
+.edge-hit:active{cursor:grabbing}
 .edge-line{fill:none;pointer-events:none;stroke-linecap:round}
 .edge-selected .edge-line{filter:drop-shadow(0 0 3px rgba(22,134,197,.95))}
-.edge-label-bg{fill:#fff;fill-opacity:.95;stroke:#cfdae4;cursor:pointer}
+.edge-label-bg{fill:#fff;fill-opacity:.95;stroke:#cfdae4;cursor:grab}
+.edge-label-bg:active{cursor:grabbing}
 .edge-selected .edge-label-bg{stroke:#1686c5;stroke-width:1.6}
 .edge-label{font-family:${FONT};font-size:10.5px;font-weight:600;fill:#3a4e62;text-anchor:middle;dominant-baseline:central;pointer-events:none}
 .box{cursor:move}
@@ -1249,7 +1322,17 @@ function nodeMarkup(n, dim) {
   } else {
     const abbr = n.type === 'other' && n.customType ? n.customType.slice(0, 3).toUpperCase() : td.abbr;
     const fs = (abbr.length > 3 ? 12 : abbr.length > 1 ? 13.5 : 19) * g.k;
-    body = `${shapeEl(g, `class="node-shape" fill="${n.color}"`)}<text class="node-abbr" style="font-size:${fs.toFixed(1)}px">${esc(abbr)}</text>`;
+    body = `${shapeEl(g, `class="node-shape" fill="${n.color}"`)}${n.insideText?.trim() ? '' : `<text class="node-abbr" style="font-size:${fs.toFixed(1)}px">${esc(abbr)}</text>`}`;
+  }
+  if (n.insideText?.trim()) {
+    const textSize = Math.max(8, 10.2 * g.k);
+    const width = g.kind === 'diamond' ? g.hw * 1.2 : g.hw * 1.7;
+    const maxLines = Math.max(1, Math.min(4, Math.floor((g.hh * 1.45) / (textSize * 1.1))));
+    const lines = wrapText(n.insideText, width, textSize, maxLines);
+    const lineH = textSize * 1.12, y0 = -((lines.length - 1) * lineH) / 2;
+    const clsText = n.image ? 'node-custom-text node-custom-text-image' : 'node-abbr node-custom-text';
+    const label = lines.map((line, i) => `<tspan x="0" y="${(y0 + i * lineH).toFixed(1)}">${esc(line)}</tspan>`).join('');
+    body += `<text class="${clsText}" style="font-size:${textSize.toFixed(1)}px">${label}</text>`;
   }
   const ring = sel ? shapeEl(g, 'class="node-ring"', 5) : '';
   const bx = (g.kind === 'rect' || g.kind === 'diamond') ? g.hw * 0.82 : g.hw * 0.72;
@@ -1317,12 +1400,13 @@ function edgeGeoms(edges) {
       const nx = -(q.y - p.y) / len, ny = (q.x - p.x) / len;
       const off = m === 1 ? Math.min(26, len * 0.07) : (i - (m - 1) / 2) * 46;
       const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-      const cx = mx + nx * off * 2, cy = my + ny * off * 2;
+      const bendX = Number.isFinite(+e.bendX) ? +e.bendX : 0, bendY = Number.isFinite(+e.bendY) ? +e.bendY : 0;
+      const cx = mx + nx * off * 2 + bendX, cy = my + ny * off * 2 + bendY;
       const [uax, uay] = unit(cx - a.x, cy - a.y), [ubx, uby] = unit(cx - b.x, cy - b.y);
       const sa = boundary(geom(a), uax, uay) + (e.direction === 'both' ? 5 : 3);
       const sb = boundary(geom(b), ubx, uby) + (e.direction === 'none' ? 3 : 5);
       const x1 = a.x + uax * sa, y1 = a.y + uay * sa, x2 = b.x + ubx * sb, y2 = b.y + uby * sb;
-      out.set(e.id, { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, lx: mx + nx * off, ly: my + ny * off });
+      out.set(e.id, { d: `M${x1.toFixed(1)} ${y1.toFixed(1)} Q${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}`, x1, y1, cx, cy, x2, y2, lx: mx + nx * off + bendX / 2, ly: my + ny * off + bendY / 2 });
     });
   }
   return out;
@@ -1352,17 +1436,24 @@ function renderEdges(edges = lastEdges, focus = lastFocus) {
     const dim = focus && !sel && !(focus.has(e.source) && focus.has(e.target) && (!focus.hub || focus.hub.has(e.source) || focus.hub.has(e.target)));
     const dash = e.style === 'dashed' ? '9 6' : e.style === 'dotted' ? '1 6' : 'none';
     const mk = `url(#${markerId(e)})`;
-    const lbl = short(e.label, 30), w = lbl.length * 6.1 + 16;
-    return `<g class="edge ${sel ? 'edge-selected' : ''} ${dim ? 'dim' : ''}" data-edge="${esc(e.id)}">
+    const lblLines = wrapText(e.label, 210, 10.5, 3);
+    const noteLines = wrapText(e.text, 210, 9.5, 3).filter(Boolean);
+    const allLines = [...lblLines.map(text => ({ text, kind: 'label' })), ...noteLines.map(text => ({ text, kind: 'note' }))];
+    const maxChars = Math.max(1, ...lblLines.map(x => x.length), ...noteLines.map(x => x.length));
+    const w = Math.max(38, Math.min(226, maxChars * 6.1 + 16));
+    const h = Math.max(18, allLines.length * 12 + 6);
+    const labelText = allLines.map((line, i) => `<tspan x="${g.lx.toFixed(1)}" y="${(g.ly + (i - (allLines.length - 1) / 2) * 12).toFixed(1)}"${line.kind === 'note' ? ' font-size="9" font-weight="500" fill="#65788b" font-style="italic"' : ''}>${esc(line.text)}</tspan>`).join('');
+    return `<g class="edge ${sel ? 'edge-selected' : ''} ${dim ? 'dim' : ''}" data-edge="${esc(e.id)}" aria-label="${esc(e.label)}${e.text ? ': ' + esc(e.text) : ''}">
+      <title>Arrastra la flecha o su etiqueta para moverla · Doble clic para editar</title>
       <path class="edge-hit" d="${g.d}"/>
       <path class="edge-line" d="${g.d}" stroke="${e.color}" stroke-width="${e.weight}" stroke-dasharray="${dash}" ${e.direction !== 'none' ? `marker-end="${mk}"` : ''} ${e.direction === 'both' ? `marker-start="${mk}"` : ''}/>
-      <rect class="edge-label-bg" x="${(g.lx - w / 2).toFixed(1)}" y="${(g.ly - 9).toFixed(1)}" width="${w.toFixed(1)}" height="18" rx="5"/>
-      <text class="edge-label" x="${g.lx.toFixed(1)}" y="${g.ly.toFixed(1)}">${esc(lbl)}</text></g>`;
+      <rect class="edge-label-bg" x="${(g.lx - w / 2).toFixed(1)}" y="${(g.ly - h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="5"/>
+      <text class="edge-label">${labelText}</text></g>`;
   }).join('');
 }
 
 /* ---------- Visibilidad y renderizado ---------- */
-function matchesSearch(n, q) { return [n.id, n.value, n.alias, n.source, n.notes, typeLabel(n), n.status, ...n.tags].join(' ').toLowerCase().includes(q); }
+function matchesSearch(n, q) { return [n.id, n.value, n.alias, n.insideText, n.source, n.notes, typeLabel(n), n.status, ...n.tags].join(' ').toLowerCase().includes(q); }
 function visibleNodes() {
   const q = $('#searchInput').value.trim().toLowerCase();
   return state.nodes.filter(n => (filterType === 'all' || n.type === filterType) && (!q || matchesSearch(n, q)));
@@ -1409,10 +1500,40 @@ function zoomAt(f, cx, cy) {
 function zoomBy(f) { const r = svgRect(); zoomAt(f, r.width / 2, r.height / 2); }
 function viewCenter() { const r = svgRect(); return { x: (r.width / 2 - zoom.x) / zoom.k, y: (r.height / 2 - zoom.y) / zoom.k }; }
 function centerOn(x, y) { const r = svgRect(); zoom.x = r.width / 2 - x * zoom.k; zoom.y = r.height / 2 - y * zoom.k; applyViewport(); }
-function contentBounds(pad = 0, nodes = visibleNodes(), boxes = state.boxes) {
+function contentBounds(pad = 0, nodes = visibleNodes(), boxes = state.boxes, edges = state.edges) {
   let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
-  for (const n of nodes) { const g = geom(n); x1 = Math.min(x1, n.x - Math.max(g.hw, 80)); x2 = Math.max(x2, n.x + Math.max(g.hw, 80)); y1 = Math.min(y1, n.y - g.hh - 10); y2 = Math.max(y2, n.y + g.hh + 36); }
+  for (const n of nodes) {
+    const g = geom(n);
+    const labelWidth = Math.max(short(n.alias || typeLabel(n), 28).length * 7.2, short(n.value, 30).length * 6.3) / 2 + 8;
+    const halfWidth = Math.max(g.hw, 80, labelWidth);
+    x1 = Math.min(x1, n.x - halfWidth); x2 = Math.max(x2, n.x + halfWidth);
+    y1 = Math.min(y1, n.y - g.hh - 10); y2 = Math.max(y2, n.y + g.hh + 36);
+  }
   for (const b of boxes) { x1 = Math.min(x1, b.x); y1 = Math.min(y1, b.y); x2 = Math.max(x2, b.x + b.w); y2 = Math.max(y2, b.y + b.h); }
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const includedEdges = edges.filter(e => nodeIds.has(e.source) && nodeIds.has(e.target));
+  const edgeGeometry = edgeGeoms(includedEdges);
+  const bezierValue = (a, b, c, t) => (1 - t) * (1 - t) * a + 2 * (1 - t) * t * b + t * t * c;
+  const axisBounds = (a, b, c) => {
+    const values = [a, c], den = a - 2 * b + c;
+    if (Math.abs(den) > 1e-9) { const t = (a - b) / den; if (t > 0 && t < 1) values.push(bezierValue(a, b, c, t)); }
+    return [Math.min(...values), Math.max(...values)];
+  };
+  for (const e of includedEdges) {
+    const g = edgeGeometry.get(e.id);
+    if (!g) continue;
+    const [ex1, ex2] = axisBounds(g.x1, g.cx, g.x2), [ey1, ey2] = axisBounds(g.y1, g.cy, g.y2);
+    const lblLines = wrapText(e.label, 210, 10.5, 3);
+    const noteLines = wrapText(e.text, 210, 9.5, 3).filter(Boolean);
+    const maxChars = Math.max(1, ...lblLines.map(x => x.length), ...noteLines.map(x => x.length));
+    const labelW = Math.max(38, Math.min(226, maxChars * 6.1 + 16));
+    const labelH = Math.max(18, (lblLines.length + noteLines.length) * 12 + 6);
+    const markerPad = 14 + (+e.weight || 1.5) / 2;
+    x1 = Math.min(x1, ex1 - markerPad, g.lx - labelW / 2 - 5);
+    x2 = Math.max(x2, ex2 + markerPad, g.lx + labelW / 2 + 5);
+    y1 = Math.min(y1, ey1 - markerPad, g.ly - labelH / 2 - 5);
+    y2 = Math.max(y2, ey2 + markerPad, g.ly + labelH / 2 + 5);
+  }
   if (!Number.isFinite(x1)) return null;
   return { x: x1 - pad, y: y1 - pad, w: x2 - x1 + pad * 2, h: y2 - y1 + pad * 2 };
 }
@@ -1540,7 +1661,10 @@ function onPointerDown(ev) {
       if (!(isSel('box', b.id) && selected.size === 1)) select('box', b.id);
     }
   } else if (edgeEl) {
-    if (ev.shiftKey) toggleSelect('edge', edgeEl.dataset.edge); else select('edge', edgeEl.dataset.edge);
+    const e = edgeById(edgeEl.dataset.edge);
+    if (ev.shiftKey) { toggleSelect('edge', e.id); return; }
+    select('edge', e.id);
+    gesture = { type: 'edge', e, start: p, bendX: +e.bendX || 0, bendY: +e.bendY || 0, moved: false };
   } else if (ev.shiftKey) {
     gesture = { type: 'marquee', start: p, moved: false };
   } else {
@@ -1560,6 +1684,14 @@ function onPointerMove(ev) {
     return;
   }
   const p = toWorld(ev);
+  if (g.type === 'edge') {
+    const dx = p.x - g.start.x, dy = p.y - g.start.y;
+    if (!g.moved && Math.hypot(dx, dy) * zoom.k < 4) return;
+    if (!g.moved) { snapshot(); g.moved = true; }
+    g.e.bendX = Math.round(g.bendX + dx); g.e.bendY = Math.round(g.bendY + dy);
+    renderEdges();
+    return;
+  }
   if (g.type === 'marquee') {
     g.moved = true; g.end = p;
     const x = Math.min(p.x, g.start.x), y = Math.min(p.y, g.start.y), w = Math.abs(p.x - g.start.x), h = Math.abs(p.y - g.start.y);
@@ -1615,7 +1747,7 @@ function onPointerUp(ev) {
       if (keys.length) setSelection([...selected, ...keys]);
     }
   }
-  if (['node', 'box', 'resize', 'group'].includes(g.type) && g.moved) commit();
+  if (['node', 'box', 'resize', 'group', 'edge'].includes(g.type) && g.moved) commit();
   if (g.type === 'node' && !g.moved && innerWidth <= 820) document.body.classList.add('show-right');
 }
 function onDoubleClick(ev) {
@@ -1845,10 +1977,10 @@ function updateQuickHint() {
 }
 function makeNode(p) {
   const td = TYPES[p.type] || TYPES.other;
-  return { id: nextId(td.prefix), type: TYPES[p.type] ? p.type : 'other', customType: p.customType || '', value: p.value || '', alias: p.alias || '', status: p.status || 'Confirmado', relevance: p.relevance || 'Media', tags: p.tags || [], source: p.source || '', notes: p.notes || '', date: p.date || '', color: td.color, shape: td.shape, size: 'm', x: p.x ?? 0, y: p.y ?? 0, image: '', created: nowIso(), updated: nowIso() };
+  return { id: nextId(td.prefix), type: TYPES[p.type] ? p.type : 'other', customType: p.customType || '', value: p.value || '', alias: p.alias || '', insideText: p.insideText || '', status: p.status || 'Confirmado', relevance: p.relevance || 'Media', tags: p.tags || [], source: p.source || '', notes: p.notes || '', date: p.date || '', color: td.color, shape: td.shape, size: 'm', x: p.x ?? 0, y: p.y ?? 0, image: '', created: nowIso(), updated: nowIso() };
 }
 function makeEdge(source, target, p = {}) {
-  return { id: nextId('REL'), source, target, label: p.label || 'asociado con', direction: 'forward', style: 'solid', color: '#607285', weight: 1.5, date: p.date || '', certainty: p.certainty || 'Confirmada', sourceRef: p.sourceRef || '', notes: p.notes || '', created: nowIso() };
+  return { id: nextId('REL'), source, target, label: p.label || 'asociado con', text: p.text || '', bendX: Number.isFinite(+p.bendX) ? +p.bendX : 0, bendY: Number.isFinite(+p.bendY) ? +p.bendY : 0, direction: 'forward', style: 'solid', color: '#607285', weight: 1.5, date: p.date || '', certainty: p.certainty || 'Confirmada', sourceRef: p.sourceRef || '', notes: p.notes || '', created: nowIso() };
 }
 function quickAdd(values) {
   const type = $('#quickType').value;
@@ -1930,6 +2062,7 @@ function renderNodeDetail(n, body) {
     body.innerHTML = `${n.image ? `<div class="image-preview"><img src="${n.image}" alt="Imagen asociada a ${esc(nodeName(n))}"></div>` : ''}
       <div class="field"><label>Valor</label><div class="value-line"><div class="field-value">${esc(n.value || '—')}</div><button type="button" class="icon-btn" data-act="copy" title="Copiar valor">${icon('copy')}</button></div>${checkHtml(res)}${dupHtml(dup, 'data-go-node')}</div>
       ${n.alias ? fieldHtml('Alias / etiqueta', n.alias) : ''}
+      ${n.insideText ? fieldHtml('Texto dentro del nodo', n.insideText) : ''}
       <div class="field"><label>Estado</label><div class="chips">${STATUS.map(s => `<button type="button" class="chip ${n.status === s ? 'on' : ''}" data-status="${s}">${s}</button>`).join('')}</div></div>
       <div class="field"><label>Relevancia</label><div class="chips">${RELEVANCE.map(s => `<button type="button" class="chip ${n.relevance === s ? 'on' : ''}" data-relevance="${s}">${s}</button>`).join('')}</div></div>
       ${n.tags.length ? fieldHtml('Etiquetas', `<span class="tag-list">${n.tags.map(t => `<button type="button" class="tag" data-tag="${esc(t)}" title="Buscar esta etiqueta">${esc(t)}</button>`).join('')}</span>`, true) : ''}
@@ -1962,7 +2095,7 @@ function renderEdgeDetail(e, body) {
   setDetailHead({ title: e.label, sub: e.id + ' · vínculo', badge: e.certainty, swatch: { color: e.color, text: '↔' } });
   const dir = e.direction === 'both' ? 'Bidireccional' : e.direction === 'none' ? 'Sin dirección' : 'Origen → destino';
   body.innerHTML = `<div class="field"><label>Origen</label><div class="field-value"><button type="button" class="link-button" data-go="${esc(a.id)}">${esc(nodeName(a))}</button> <span class="form-help">${esc(typeLabel(a))}</span></div></div>
-    ${fieldHtml('Relación', e.label)}
+    ${fieldHtml('Relación', e.label)}${e.text ? fieldHtml('Texto libre en la flecha', e.text) : ''}
     <div class="field"><label>Destino</label><div class="field-value"><button type="button" class="link-button" data-go="${esc(b.id)}">${esc(nodeName(b))}</button> <span class="form-help">${esc(typeLabel(b))}</span></div></div>
     ${fieldHtml('Dirección', dir)}${fieldHtml('Certeza', e.certainty)}${fieldHtml('Fecha', fmtDate(e.date) || 'Sin fecha')}${fieldHtml('Fuente / referencia', e.sourceRef || 'No documentada')}${e.notes ? fieldHtml('Detalle', e.notes) : ''}
     <div class="detail-actions">
@@ -2241,6 +2374,7 @@ function openEntity(id = null, pos = null, linkFrom = null) {
   $('#entityCustomType').value = n?.customType || '';
   $('#entityValue').value = n?.value || '';
   $('#entityAlias').value = n?.alias || '';
+  $('#entityInsideText').value = n?.insideText || '';
   $('#entityStatus').value = n?.status || 'Confirmado';
   $('#entityRelevance').value = n?.relevance || 'Media';
   $('#entityShape').value = n?.shape || TYPES[type].shape;
@@ -2286,7 +2420,7 @@ async function saveEntity(again = false) {
   snapshot();
   const data = {
     id: existing?.id || nextId(td.prefix), type, customType: type === 'other' ? $('#entityCustomType').value.trim() : '',
-    value, alias: $('#entityAlias').value.trim(), status: $('#entityStatus').value, relevance: $('#entityRelevance').value,
+    value, alias: $('#entityAlias').value.trim(), insideText: $('#entityInsideText').value.trim(), status: $('#entityStatus').value, relevance: $('#entityRelevance').value,
     tags: [...new Set($('#entityTags').value.split(',').map(x => x.trim()).filter(Boolean))],
     date: $('#entityDate').value, source: $('#entitySource').value.trim(), notes: $('#entityNotes').value.trim(),
     color: $('#entityColor').value, shape: $('#entityShape').value, size: $('#entitySize').value, image,
@@ -2348,6 +2482,7 @@ function openEdge(id = null, source = null, target = null) {
   $('#edgeSource').value = source;
   $('#edgeTarget').value = target;
   $('#edgeLabel').value = e?.label || suggestRelation(nodeById(source), nodeById(target));
+  $('#edgeText').value = e?.text || '';
   $('#edgeDirection').value = e?.direction || 'forward';
   $('#edgeStyle').value = e?.style || 'solid';
   $('#edgeColor').value = e?.color || '#607285';
@@ -2362,22 +2497,35 @@ function openEdge(id = null, source = null, target = null) {
 }
 function saveEdge() {
   const id = $('#edgeId').value, existing = id ? edgeById(id) : null;
-  const label = $('#edgeLabel').value.trim();
-  if (!label) { toast('Indica el tipo de relación.', 'error'); $('#edgeLabel').focus(); return; }
+  const rawLabels = $('#edgeLabel').value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+  const labels = [...new Map(rawLabels.map(x => [x.toLocaleLowerCase(), x])).values()];
+  if (!labels.length) { toast('Escribe al menos una relación.', 'error'); $('#edgeLabel').focus(); return; }
   const source = $('#edgeSource').value, target = $('#edgeTarget').value;
-  if (!existing && state.edges.some(e => e.source === source && e.target === target && e.label.toLowerCase() === label.toLowerCase())) toast('Ya existía un vínculo idéntico entre estas entidades.', 'error');
+  const duplicateCount = labels.filter(label => state.edges.some(e => e.id !== existing?.id && e.source === source && e.target === target && e.label.toLocaleLowerCase() === label.toLocaleLowerCase())).length;
   snapshot();
-  const data = {
-    id: existing?.id || nextId('REL'), source, target, label,
+  const base = {
+    source, target,
     direction: $('#edgeDirection').value, style: $('#edgeStyle').value, color: $('#edgeColor').value, weight: +$('#edgeWeight').value,
-    date: $('#edgeDate').value, certainty: $('#edgeCertainty').value, sourceRef: $('#edgeSourceRef').value.trim(), notes: $('#edgeNotes').value.trim(),
-    created: existing?.created || nowIso()
+    date: $('#edgeDate').value, certainty: $('#edgeCertainty').value, sourceRef: $('#edgeSourceRef').value.trim(), notes: $('#edgeNotes').value.trim(), text: $('#edgeText').value.trim(),
   };
-  if (existing) Object.assign(existing, data); else state.edges.push(data);
+  const made = [];
+  labels.forEach((label, i) => {
+    if (existing && i === 0) {
+      Object.assign(existing, base, { label, created: existing.created || nowIso() });
+      made.push(existing);
+    } else {
+      const edge = { id: nextId('REL'), ...base, label, created: nowIso() };
+      state.edges.push(edge);
+      made.push(edge);
+    }
+  });
+  const data = made[0];
   selection = { kind: 'edge', id: data.id };
   $('#edgeDialog').close();
   commit();
-  toast(existing ? 'Vínculo actualizado.' : 'Vínculo creado.');
+  const repeatedLines = rawLabels.length - labels.length;
+  const summary = existing ? `Vínculo actualizado${made.length > 1 ? ` y ${made.length - 1} más añadidos` : ''}.` : `${made.length} vínculo${made.length === 1 ? '' : 's'} creado${made.length === 1 ? '' : 's'}.`;
+  toast(`${summary}${repeatedLines ? ` ${repeatedLines} línea${repeatedLines === 1 ? '' : 's'} repetida${repeatedLines === 1 ? '' : 's'} omitida${repeatedLines === 1 ? '' : 's'}.` : ''}${duplicateCount ? ` Revisa ${duplicateCount} relación${duplicateCount === 1 ? '' : 'es'} con el mismo texto ya existente.` : ''}`);
 }
 
 /* ---------- Notas y zonas ---------- */
@@ -2455,8 +2603,8 @@ function renderTable() {
     cols = [['id', 'ID'], ['type', 'Tipo'], ['alias', 'Alias'], ['value', 'Valor'], ['status', 'Estado'], ['relevance', 'Relev.'], ['date', 'Fecha'], ['source', 'Fuente'], ['tags', 'Etiquetas'], ['deg', 'Vínc.']];
     rows = visibleNodes().map(n => ({ _go: n.id, id: n.id, type: typeLabel(n), alias: n.alias, value: n.value, status: n.status, relevance: n.relevance, date: n.date, source: n.source, tags: n.tags.join(', '), deg: deg.get(n.id), _color: n.color }));
   } else if (tableMode === 'edges') {
-    cols = [['id', 'ID'], ['src', 'Origen'], ['label', 'Relación'], ['tgt', 'Destino'], ['certainty', 'Certeza'], ['date', 'Fecha'], ['sourceRef', 'Fuente'], ['notes', 'Detalle']];
-    rows = state.edges.map(e => ({ _edge: e.id, id: e.id, src: nodeName(nodeById(e.source)), label: e.label, tgt: nodeName(nodeById(e.target)), certainty: e.certainty, date: e.date, sourceRef: e.sourceRef, notes: e.notes }));
+    cols = [['id', 'ID'], ['src', 'Origen'], ['label', 'Relación'], ['text', 'Texto en flecha'], ['tgt', 'Destino'], ['certainty', 'Certeza'], ['date', 'Fecha'], ['sourceRef', 'Fuente'], ['notes', 'Detalle']];
+    rows = state.edges.map(e => ({ _edge: e.id, id: e.id, src: nodeName(nodeById(e.source)), label: e.label, text: e.text, tgt: nodeName(nodeById(e.target)), certainty: e.certainty, date: e.date, sourceRef: e.sourceRef, notes: e.notes }));
   } else {
     cols = [['id', 'ID'], ['kind', 'Tipo'], ['title', 'Título'], ['text', 'Texto']];
     rows = state.boxes.map(b => ({ _box: b.id, id: b.id, kind: b.kind === 'frame' ? 'Zona' : 'Nota', title: b.title, text: b.text }));
@@ -2713,7 +2861,7 @@ function markFileSaved() { fileDirty = false; lastFileSave = new Date(); remembe
 
 function mergeCase(other) {
   snapshot();
-  const cb = contentBounds(0, state.nodes, state.boxes), ob = contentBounds(0, other.nodes, other.boxes);
+  const cb = contentBounds(0, state.nodes, state.boxes), ob = contentBounds(0, other.nodes, other.boxes, []);
   const dx = cb && ob ? cb.x + cb.w + 160 - ob.x : 0, dy = cb && ob ? cb.y - ob.y : 0;
   const byNorm = new Map();
   state.nodes.forEach(n => { const k = normValue(n.type, n.value); if (k.length >= 3 && !isMasked(n.value)) byNorm.set(k, n); });
@@ -2736,31 +2884,66 @@ function mergeCase(other) {
 }
 
 /* ---------- CSV / TSV ---------- */
-const CSV_HEADERS = ['clase', 'id', 'tipo', 'valor', 'alias', 'origen', 'relacion', 'destino', 'estado_certeza', 'relevancia', 'fecha', 'fuente', 'notas', 'etiquetas'];
+const CSV_HEADERS = ['clase', 'id', 'tipo', 'valor', 'alias', 'origen', 'relacion', 'destino', 'estado_certeza', 'relevancia', 'fecha', 'fuente', 'notas', 'etiquetas', 'texto_interior', 'texto_flecha', 'desvio_x', 'desvio_y'];
 function csvCell(v) { return '"' + String(v ?? '').replace(/"/g, '""') + '"'; }
 function parseDelimited(text) {
-  const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.trim());
-  if (!lines.length) return [];
-  const count = ch => (lines[0].match(new RegExp(ch === '\t' ? '\\t' : '\\' + ch, 'g')) || []).length;
-  const delim = ['\t', ';', ','].sort((a, b) => count(b) - count(a))[0];
-  const parse = line => {
-    const out = []; let cur = '', q = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') { if (q && line[i + 1] === '"') { cur += '"'; i++; } else q = !q; }
-      else if (c === delim && !q) { out.push(cur.trim()); cur = ''; }
-      else cur += c;
+  const source = String(text || '').replace(/^﻿/, '');
+  const parseRows = delim => {
+    const rows = []; let row = [], cell = '', quoted = false;
+    for (let i = 0; i < source.length; i++) {
+      const ch = source[i];
+      if (ch === '"') {
+        if (quoted && source[i + 1] === '"') { cell += '"'; i++; }
+        else quoted = !quoted;
+      } else if (ch === delim && !quoted) { row.push(cell.trim()); cell = ''; }
+      else if ((ch === '\n' || ch === '\r') && !quoted) {
+        if (ch === '\r' && source[i + 1] === '\n') i++;
+        row.push(cell.trim());
+        if (row.some(x => x !== '')) rows.push(row);
+        row = []; cell = '';
+      } else cell += ch;
     }
-    out.push(cur.trim());
-    return out;
+    if (quoted) throw new Error('hay un campo entrecomillado sin cerrar');
+    row.push(cell.trim());
+    if (row.some(x => x !== '')) rows.push(row);
+    return rows;
   };
-  const headers = parse(lines[0]).map(h => h.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, '_'));
-  return lines.slice(1).map(line => { const cells = parse(line); return Object.fromEntries(headers.map((h, i) => [h, cells[i] || ''])); });
+  const candidates = [';', '\t', ','].map(delim => ({ delim, rows: parseRows(delim) }));
+  candidates.sort((a, b) => {
+    const score = x => { const widths = x.rows.slice(0, 12).map(r => r.length); const multi = widths.filter(n => n > 1).length; return multi * 100 + (widths.length ? widths.reduce((s,n) => s+n, 0) / widths.length : 0); };
+    return score(b) - score(a);
+  });
+  const rows = candidates[0].rows;
+  if (!rows.length) return [];
+  const simplify = value => String(value || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  const aliases = {
+    clase: 'clase', class: 'clase', tipo_registro: 'clase', record_type: 'clase',
+    id: 'id', identificador: 'id', entity_id: 'id', node_id: 'id',
+    tipo: 'tipo', type: 'tipo', tipo_de_dato: 'tipo', tipo_de_entidad: 'tipo', entidad: 'tipo', entity_type: 'tipo',
+    valor: 'valor', value: 'valor', dato: 'valor', indicador: 'valor', telefono: 'telefono', numero_de_telefono: 'telefono', phone: 'telefono', imei: 'imei', email: 'email', correo: 'email', iban: 'iban',
+    alias: 'alias', nombre: 'alias', etiqueta: 'alias', name: 'alias',
+    origen: 'origen', id_de_origen: 'origen', source_id: 'origen', from: 'origen',
+    relacion: 'relacion', relationship: 'relacion', relation: 'relacion', vinculo: 'relacion', label: 'relacion',
+    destino: 'destino', target: 'destino', target_id: 'destino', to: 'destino',
+    estado_certeza: 'estado_certeza', estado_de_certeza: 'estado_certeza', estado: 'estado_certeza', certainty: 'estado_certeza', status: 'estado_certeza',
+    relevancia: 'relevancia', relevance: 'relevancia', prioridad: 'relevancia',
+    fecha: 'fecha', date: 'fecha', datetime: 'fecha',
+    fuente: 'fuente', source: 'fuente', source_ref: 'fuente', source_reference: 'fuente', referencia: 'fuente', fuente_referencia: 'fuente',
+    notas: 'notas', notes: 'notas', observaciones: 'notas', comentario: 'notas',
+    etiquetas: 'etiquetas', tags: 'etiquetas', tag: 'etiquetas', texto_flecha: 'texto_flecha', texto_libre_flecha: 'texto_flecha', texto_en_flecha: 'texto_flecha', edge_text: 'texto_flecha', label_text: 'texto_flecha', desvio_x: 'desvio_x', bend_x: 'desvio_x', desvio_y: 'desvio_y', bend_y: 'desvio_y', texto_interior: 'texto_interior', texto_en_nodo: 'texto_interior', texto_dentro_del_nodo: 'texto_interior', inside_text: 'texto_interior', text_inside_node: 'texto_interior', node_text: 'texto_interior'
+  };
+  const rawHeaders = rows[0].map(simplify);
+  const hasTargetHeader = rawHeaders.some(h => ['destino', 'target', 'target_id', 'to'].includes(aliases[h] || h));
+  const headers = rawHeaders.map(h => h === 'source' && hasTargetHeader ? 'origen' : (aliases[h] || h));
+  return rows.slice(1).map(cells => Object.fromEntries(headers.map((h, i) => [h, cells[i] || ''])));
 }
 function resolveType(tipo, valor) {
   const t = String(tipo || '').trim().toLowerCase();
   if (!t) return detectType(valor) || 'other';
-  const hit = Object.entries(TYPES).find(([k, d]) => k === t || d.label.toLowerCase() === t || d.prefix.toLowerCase() === t || d.label.toLowerCase().split(' ')[0] === t);
+  const synonyms = { telefono: 'phone', movil: 'phone', sim: 'sim', iccid: 'sim', imei: 'imei', imeisv: 'imei', persona: 'person', dni: 'person', nie: 'person', titular: 'person', cuenta: 'bank', bancaria: 'bank', iban: 'bank', tarjeta: 'bank', email: 'email', correo: 'email', ip: 'ip', ipv4: 'ip', ipv6: 'ip', dominio: 'domain', url: 'domain', web: 'domain', perfil: 'social', social: 'social', rrss: 'social', wallet: 'crypto', crypto: 'crypto', criptomoneda: 'crypto', empresa: 'company', cif: 'company', vehiculo: 'vehicle', matricula: 'vehicle', ubicacion: 'location', localizacion: 'location', coordenadas: 'location', documento: 'evidence', evidencia: 'evidence', evento: 'event' };
+  const simplified = t.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  if (synonyms[simplified]) return synonyms[simplified];
+  const hit = Object.entries(TYPES).find(([k, d]) => k === simplified || d.label.toLowerCase() === t || d.prefix.toLowerCase() === t || d.label.toLowerCase().split(' ')[0] === t);
   return hit ? hit[0] : null;
 }
 function importCsv(file) {
@@ -2770,25 +2953,35 @@ function importCsv(file) {
       const rows = parseDelimited(fr.result);
       if (!rows.length) throw new Error('el archivo no contiene filas');
       snapshot();
-      const c = viewCenter(), map = new Map();
-      let nodes = 0, edges = 0, skipped = 0;
+      const c = viewCenter(), map = new Map(), importedIds = new Set();
+      let nodes = 0, edges = 0, skipped = 0, merged = 0, duplicateEdges = 0;
       const entityRows = rows.filter(r => (r.clase || 'entidad').toLowerCase().startsWith('ent'));
       const cols = Math.ceil(Math.sqrt(entityRows.length || 1));
       entityRows.forEach((r, i) => {
         const value = r.valor || r.value || r.telefono || r.imei || r.email || r.iban || '';
         if (!value && !r.alias) { skipped++; return; }
         const type = resolveType(r.tipo, value);
-        const n = makeNode({ type: type || 'other', customType: type ? '' : r.tipo, value, alias: r.alias, status: STATUS.includes(r.estado_certeza) ? r.estado_certeza : 'Pendiente', relevance: RELEVANCE.includes(r.relevancia) ? r.relevancia : 'Media', date: r.fecha, source: r.fuente, notes: r.notas, tags: String(r.etiquetas || '').split(/[|,]/).map(x => x.trim()).filter(Boolean) });
-        if (r.id && !nodeById(r.id)) n.id = r.id;
+        const duplicate = value && type && !isMasked(value) ? state.nodes.find(n => n.type === type && normValue(n.type, n.value) === normValue(type, value)) : null;
+        if (duplicate) {
+          if (r.id) map.set(r.id, duplicate.id);
+          merged++;
+          return;
+        }
+        const n = makeNode({ type: type || 'other', customType: type ? '' : r.tipo, value, alias: r.alias, insideText: r.texto_interior, status: STATUS.includes(r.estado_certeza) ? r.estado_certeza : 'Pendiente', relevance: RELEVANCE.includes(r.relevancia) ? r.relevancia : 'Media', date: r.fecha, source: r.fuente, notes: r.notas, tags: String(r.etiquetas || '').split(/[|,]/).map(x => x.trim()).filter(Boolean) });
+        if (r.id && !nodeById(r.id) && !importedIds.has(r.id)) n.id = r.id;
         n.x = Math.round(c.x - cols * 100 + (i % cols) * 200); n.y = Math.round(c.y - 150 + Math.floor(i / cols) * 160);
         state.nodes.push(n);
-        if (r.id) map.set(r.id, n.id);
+        if (r.id) { map.set(r.id, n.id); importedIds.add(r.id); }
         nodes++;
       });
       rows.filter(r => (r.clase || '').toLowerCase().startsWith('vinc')).forEach(r => {
         const s = map.get(r.origen) || (nodeById(r.origen) && r.origen), t = map.get(r.destino) || (nodeById(r.destino) && r.destino);
         if (!s || !t || s === t) { skipped++; return; }
-        const e = makeEdge(s, t, { label: r.relacion || 'relacionado con', date: r.fecha, sourceRef: r.fuente, notes: r.notas, certainty: ['Confirmada', 'Probable', 'Hipótesis'].includes(r.estado_certeza) ? r.estado_certeza : 'Probable' });
+        const relKey = e => [e.source, e.target, String(e.label || '').trim().toLowerCase(), e.date || '', String(e.sourceRef || '').trim().toLowerCase(), e.certainty || ''].join('|');
+        const label = r.relacion || 'relacionado con';
+        const certainty = ['Confirmada', 'Probable', 'Hipótesis'].includes(r.estado_certeza) ? r.estado_certeza : 'Probable';
+        if (state.edges.some(e => relKey(e) === relKey({ source: s, target: t, label, date: r.fecha, sourceRef: r.fuente, certainty }))) { duplicateEdges++; return; }
+        const e = makeEdge(s, t, { label, text: r.texto_flecha, bendX: Number(r.desvio_x) || 0, bendY: Number(r.desvio_y) || 0, date: r.fecha, sourceRef: r.fuente, notes: r.notas, certainty });
         e.style = CERTAINTY_STYLE[e.certainty];
         state.edges.push(e);
         edges++;
@@ -2797,17 +2990,17 @@ function importCsv(file) {
       setView('graph');
       commit();
       fitGraph();
-      toast(`Importadas ${nodes} entidades y ${edges} vínculos${skipped ? ` · ${skipped} filas omitidas` : ''}.`, 'ok', { label: 'Deshacer', fn: undo });
+      toast(`Importadas ${nodes} entidades y ${edges} vínculos${merged ? ` · ${merged} entidades ya existentes vinculadas` : ''}${duplicateEdges ? ` · ${duplicateEdges} vínculos repetidos ignorados` : ''}${skipped ? ` · ${skipped} filas omitidas` : ''}.`, 'ok', { label: 'Deshacer', fn: undo });
     } catch (e) { toast('No se pudo importar: ' + e.message, 'error'); }
   };
   fr.readAsText(file);
 }
 function csvTemplate() {
   const rows = [CSV_HEADERS,
-    ['entidad', 'T1', 'Teléfono', '+34 600 000 000', 'Teléfono del anuncio', '', '', '', 'Confirmado', 'Alta', '2026-01-15', 'Atestado 1/2026', '', 'WhatsApp|anuncio'],
-    ['entidad', 'B1', 'Cuenta bancaria', 'ES91 2100 0418 4502 0005 1332', 'Cuenta receptora', '', '', '', 'Probable', 'Media', '', 'Justificante víctima 1', '', ''],
-    ['entidad', 'X1', '', 'usuario@ejemplo.com', '', '', '', '', 'Pendiente', '', '', '', 'Tipo vacío: se detecta automáticamente', ''],
-    ['vinculo', '', '', '', '', 'T1', 'asociado con', 'B1', 'Probable', '', '2026-01-16', 'Análisis', '', '']];
+    ['entidad', 'T1', 'Teléfono', '+34 600 000 000', 'Teléfono del anuncio', '', '', '', 'Confirmado', 'Alta', '2026-01-15', 'Atestado 1/2026', '', 'WhatsApp|anuncio', '', '', '', ''],
+    ['entidad', 'B1', 'Cuenta bancaria', 'ES91 2100 0418 4502 0005 1332', 'Cuenta receptora', '', '', '', 'Probable', 'Media', '', 'Justificante víctima 1', '', '', '', '', '', ''],
+    ['entidad', 'X1', '', 'usuario@ejemplo.com', '', '', '', '', 'Pendiente', '', '', '', 'Tipo vacío: se detecta automáticamente', '', '', '', '', ''],
+    ['vinculo', '', '', '', '', 'T1', 'asociado con', 'B1', 'Probable', '', '2026-01-16', 'Análisis', '', '', '', 'Transferencia de ejemplo', '0', '0']];
   download('plantilla-rastro-link.csv', new Blob(['﻿' + rows.map(r => r.map(csvCell).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
 }
 
@@ -2816,8 +3009,8 @@ function csvTemplate() {
    ===================================================================== */
 function exportCsv() {
   const rows = [CSV_HEADERS];
-  state.nodes.forEach(n => rows.push(['entidad', n.id, typeLabel(n), n.value, n.alias, '', '', '', n.status, n.relevance, n.date, n.source, n.notes, n.tags.join('|')]));
-  state.edges.forEach(e => rows.push(['vinculo', e.id, '', '', '', e.source, e.label, e.target, e.certainty, '', e.date, e.sourceRef, e.notes, '']));
+  state.nodes.forEach(n => rows.push(['entidad', n.id, typeLabel(n), n.value, n.alias, '', '', '', n.status, n.relevance, n.date, n.source, n.notes, n.tags.join('|'), n.insideText, '', '', '']));
+  state.edges.forEach(e => rows.push(['vinculo', e.id, '', '', '', e.source, e.label, e.target, e.certainty, '', e.date, e.sourceRef, e.notes, '', '', e.text || '', e.bendX || 0, e.bendY || 0]));
   download(`rastro-link-${slug()}.csv`, new Blob(['﻿' + rows.map(r => r.map(csvCell).join(';')).join('\n')], { type: 'text/csv;charset=utf-8' }));
   toast('Inventario CSV exportado.');
 }
@@ -2866,10 +3059,10 @@ function exportPdf() {
   const r = exportSvg();
   const win = open('', '_blank');
   if (!win) { toast('El navegador bloqueó la ventana de impresión. Permite las ventanas emergentes.', 'error'); return; }
-  if (r) { r.clone.setAttribute('style', 'width:100%;height:auto;max-height:170mm;border:1px solid #ccd8e4'); r.clone.removeAttribute('width'); r.clone.removeAttribute('height'); }
+  if (r) { r.clone.setAttribute('style', 'display:block;width:100%;height:auto;max-height:170mm;overflow:visible;margin:0 auto 8px;border:1px solid #ccd8e4;break-inside:avoid;page-break-inside:avoid'); r.clone.removeAttribute('width'); r.clone.removeAttribute('height'); }
   const m = state.meta;
-  const nRows = state.nodes.map(n => `<tr><td>${esc(n.id)}</td><td>${esc(typeLabel(n))}</td><td>${esc(n.alias)}</td><td class="mono">${esc(n.value)}</td><td>${esc(n.status)}</td><td>${esc(fmtDate(n.date))}</td><td>${esc(n.source)}</td><td>${esc(n.notes)}</td></tr>`).join('');
-  const eRows = state.edges.map(e => `<tr><td>${esc(e.id)}</td><td>${esc(nodeName(nodeById(e.source)))}</td><td>${esc(e.label)}</td><td>${esc(nodeName(nodeById(e.target)))}</td><td>${esc(e.certainty)}</td><td>${esc(fmtDate(e.date))}</td><td>${esc(e.sourceRef)}</td><td>${esc(e.notes)}</td></tr>`).join('');
+  const nRows = state.nodes.map(n => `<tr><td>${esc(n.id)}</td><td>${esc(typeLabel(n))}</td><td>${esc(n.alias)}</td><td>${esc(n.insideText)}</td><td class="mono">${esc(n.value)}</td><td>${esc(n.status)}</td><td>${esc(fmtDate(n.date))}</td><td>${esc(n.source)}</td><td>${esc(n.notes)}</td></tr>`).join('');
+  const eRows = state.edges.map(e => `<tr><td>${esc(e.id)}</td><td>${esc(nodeName(nodeById(e.source)))}</td><td>${esc(e.label)}</td><td>${esc(e.text || '')}</td><td>${esc(nodeName(nodeById(e.target)))}</td><td>${esc(e.certainty)}</td><td>${esc(fmtDate(e.date))}</td><td>${esc(e.sourceRef)}</td><td>${esc(e.notes)}</td></tr>`).join('');
   const bRows = state.boxes.map(b => `<tr><td>${esc(b.id)}</td><td>${b.kind === 'frame' ? 'Zona' : 'Nota'}</td><td>${esc(b.title)}</td><td>${esc(b.text)}</td></tr>`).join('');
   win.document.write(`<!doctype html><html lang="es"><head><meta charset="utf-8"><title>${esc(m.name)} · RASTRO-LINK</title><style>
     body{font:11px Arial,sans-serif;color:#142334;margin:18px}h1{font-size:19px;color:#071a33;margin:0 0 3px}h2{font-size:13px;color:#0b2948;margin:18px 0 6px;border-bottom:2px solid #1686c5;padding-bottom:3px}
@@ -2878,8 +3071,8 @@ function exportPdf() {
   </style></head><body><div class="noprint"><button onclick="print()">Imprimir / guardar como PDF</button></div>
   <h1>${esc(m.name)}</h1><p class="meta">${esc([m.reference, m.owner, 'Generado ' + new Date().toLocaleString('es-ES')].filter(Boolean).join(' · '))}</p>${m.description ? `<p class="desc">${esc(m.description)}</p>` : ''}
   ${r ? r.clone.outerHTML : ''}
-  <h2>Entidades (${state.nodes.length})</h2><table><thead><tr><th>ID</th><th>Tipo</th><th>Alias</th><th>Valor</th><th>Estado</th><th>Fecha</th><th>Fuente</th><th>Notas</th></tr></thead><tbody>${nRows || '<tr><td colspan="8">—</td></tr>'}</tbody></table>
-  <h2>Vínculos (${state.edges.length})</h2><table><thead><tr><th>ID</th><th>Origen</th><th>Relación</th><th>Destino</th><th>Certeza</th><th>Fecha</th><th>Fuente</th><th>Detalle</th></tr></thead><tbody>${eRows || '<tr><td colspan="8">—</td></tr>'}</tbody></table>
+  <h2>Entidades (${state.nodes.length})</h2><table><thead><tr><th>ID</th><th>Tipo</th><th>Alias</th><th>Texto dentro del nodo</th><th>Valor</th><th>Estado</th><th>Fecha</th><th>Fuente</th><th>Notas</th></tr></thead><tbody>${nRows || '<tr><td colspan="9">—</td></tr>'}</tbody></table>
+  <h2>Vínculos (${state.edges.length})</h2><table><thead><tr><th>ID</th><th>Origen</th><th>Relación</th><th>Texto en flecha</th><th>Destino</th><th>Certeza</th><th>Fecha</th><th>Fuente</th><th>Detalle</th></tr></thead><tbody>${eRows || '<tr><td colspan="9">—</td></tr>'}</tbody></table>
   ${bRows ? `<h2>Notas y zonas</h2><table><thead><tr><th>ID</th><th>Tipo</th><th>Título</th><th>Texto</th></tr></thead><tbody>${bRows}</tbody></table>` : ''}
   <p class="foot">RASTRO-LINK ${APP_VERSION} · Documento de trabajo. Contiene información sensible.</p>
   <script>setTimeout(function(){print()},500)<\/script></body></html>`);
@@ -2896,6 +3089,7 @@ function exportHtml() {
    9. Eventos e inicialización
    ===================================================================== */
 function bindUi() {
+  $('#edgeLabelPreset').insertAdjacentHTML('beforeend', $$('#edgeLabels option').map(o => `<option value="${esc(o.value)}">${esc(o.value)}</option>`).join(''));
   const on = (sel, ev, fn) => $(sel).addEventListener(ev, fn);
   const click = (sel, fn) => on(sel, 'click', fn);
 
@@ -3007,6 +3201,14 @@ function bindUi() {
     $('#entityThumb').src = url; $('#entityThumb').classList.remove('hidden');
   });
   on('#edgeForm', 'submit', ev => { ev.preventDefault(); saveEdge(); });
+  on('#edgeLabelPreset', 'change', ev => {
+    const value = ev.target.value;
+    if (!value) return;
+    const field = $('#edgeLabel'), current = field.value.trim();
+    field.value = current ? `${current}\n${value}` : value;
+    ev.target.value = '';
+    field.focus();
+  });
   on('#edgeCertainty', 'change', () => { $('#edgeStyle').value = CERTAINTY_STYLE[$('#edgeCertainty').value]; });
   on('#boxForm', 'submit', ev => { ev.preventDefault(); saveBox(); });
   on('#boxKind', 'change', updateBoxHelp);
